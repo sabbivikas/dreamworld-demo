@@ -902,7 +902,6 @@ function frame() {
   if (composer && !splatMode) composer.render(); else renderer.render(scene, camera);
 }
 frame();
-if (TEST_BATTLE) setTimeout(() => begin('an epic battlefield at dusk, banners catching fire'), 500);
 
 
 /* ---------------- war ambience (synth, gesture-gated) ---------------- */
@@ -1285,6 +1284,8 @@ function begin(text) {
     reveal();
   })();
 }
+
+if (TEST_BATTLE) setTimeout(() => begin('an epic battlefield at dusk, banners catching fire'), 500);
 </script>
 </body>
 </html>
