@@ -892,6 +892,7 @@ function frame() {
     const d = Math.hypot(pos.x, pos.z);
     const maxR = splatMode ? splatMaxR : 150;
     if (d > maxR) { pos.x *= maxR / d; pos.z *= maxR / d; }
+    if (splatMode && splatGroundFn) { const gyT = splatGroundFn(pos.x, pos.z) + 1.7; pos.y += (gyT - pos.y) * Math.min(1, dt * 5); }
     const moving = Math.abs(mx) + Math.abs(mz) > .05;
     const bob = moving ? Math.sin(t * 7) * .12 : Math.sin(t * 1.2) * .05;
     camera.position.set(pos.x, pos.y + (flyMode ? 0 : bob), pos.z);
@@ -1098,7 +1099,7 @@ const FORCE_MOCK = new URLSearchParams(location.search).has('mock') || location.
 const TEST_BATTLE = new URLSearchParams(location.search).has('testbattle');
 const TEST_SPZ = MARBLE_WORKER + '/asset?url=' + encodeURIComponent('https://cdn.marble.worldlabs.ai/86c9176a-9019-40e1-90a0-7aea5d0e55a3/069ab923-379d-482c-bba5-d7c9c9f0f989_sand_500k.spz');
 const TEST_COL = MARBLE_WORKER + '/asset?url=' + encodeURIComponent('https://cdn.marble.worldlabs.ai/86c9176a-9019-40e1-90a0-7aea5d0e55a3/4d59a32d.glb');
-let splatMesh = null, splatMode = false, currentGenre = null, splatMaxR = 30;
+let splatMesh = null, splatMode = false, currentGenre = null, splatMaxR = 30, splatGroundFn = null;
 
 const STORY = [
   { keys: ['battle','war','army','armies','siege','clash','legion','battlefield'],
@@ -1152,20 +1153,32 @@ async function enterSplatWorld(spzUrl, label, opts) {
   currentGenre = opts.battle ? 'battle' : null;
   if (!opts.battle) stopWarAudio();
   splatMaxR = opts.battle ? 40 : 30;
-  pos.set(0, 1.7, opts.battle ? 14 : 4); yaw = 0; pitch = 0; intro = .6;
+  yaw = 0; pitch = 0; intro = .6;
   document.getElementById('world-name').textContent = label || 'your world';
-  if (opts.battle) {
-    let groundY = () => 0;
+  let groundY = null;
+  if (opts.collider) {
     try {
       const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
       const gltf = await new GLTFLoader().loadAsync(opts.collider);
-      const colScene = gltf.scene; colScene.updateMatrixWorld(true);
+      const colScene = gltf.scene;
+      const bbox = new THREE.Box3().setFromObject(colScene);
+      const dim = Math.max(bbox.max.x - bbox.min.x, bbox.max.z - bbox.min.z);
+      const S = dim > .1 ? Math.min(10, Math.max(1, 64 / dim)) : 1;
+      const ox = -S * (bbox.min.x + bbox.max.x) / 2, oz = -S * (bbox.min.z + bbox.max.z) / 2;
+      colScene.scale.setScalar(S); colScene.position.set(ox, 0, oz); colScene.updateMatrixWorld(true);
+      splatMesh.scale.setScalar(S); splatMesh.position.set(ox, 0, oz);
       const rc = new THREE.Raycaster(), DOWN = new THREE.Vector3(0, -1, 0), ORG = new THREE.Vector3();
-      groundY = (x, z) => { ORG.set(x, 80, z); rc.set(ORG, DOWN); const h = rc.intersectObject(colScene, true); return h.length ? h[0].point.y : 0; };
+      groundY = (x, z) => { ORG.set(x, 500, z); rc.set(ORG, DOWN); const h = rc.intersectObject(colScene, true); return h.length ? h[0].point.y : 0; };
+      splatGroundFn = groundY;
     } catch (e) { console.warn('collider unavailable, flat ground:', e); }
+  }
+  if (!groundY) { groundY = () => 0; splatGroundFn = null; }
+  if (opts.battle) {
     const gy0 = groundY(0, 14);
     pos.set(0, gy0 + 1.7, 14);
     current = buildBattleOnSplat(root, groundY, gy0);
+  } else {
+    pos.set(0, groundY(0, 4) + 1.7, 4);
   }
 }
 
