@@ -1100,7 +1100,6 @@ function buildBattleOnSplat(root, groundY, gy0, ext) {
       pa.needsUpdate = true;
       for (const fr of fires) { fr.f.material.opacity = .55 + .3 * Math.abs(Math.sin(t * 7 + fr.p)); fr.f.scale.setScalar(fr.f.scale.x * (0.97 + 0.06 * Math.abs(Math.sin(t * 9 + fr.p)))); }
       cmdGlow.material.opacity = .28 + .1 * Math.sin(t * 2.2);
-      window.__dbg = { pos: [Math.round(pos.x * 10) / 10, Math.round(pos.z * 10) / 10], char: charData && charData.name, d: beats.map(bt => Math.round(Math.hypot(pos.x - bt.x, pos.z - bt.z) * 10) / 10) };
       if (charData && charData.name === 'commander rye') {
         for (const bt of beats) {
           if (!bt.fired && Math.hypot(pos.x - bt.x, pos.z - bt.z) < bt.r) { bt.fired = true; addMsg(bt.line, 'char', 'commander rye'); }
