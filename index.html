@@ -1177,8 +1177,9 @@ async function enterSplatWorld(spzUrl, label, opts) {
   }
   if (!groundY) { groundY = () => 0; splatGroundFn = null; }
   if (opts.battle) {
-    const gy0 = groundY(0, 14);
-    pos.set(0, gy0 + 1.7, 14);
+    const sz0 = worldExt ? worldExt.hz * .7 : 14;
+    const gy0 = groundY(0, sz0);
+    pos.set(0, gy0 + 2.0, sz0);
     current = buildBattleOnSplat(root, groundY, gy0, worldExt);
   } else {
     pos.set(0, groundY(0, 4) + 1.7, 4);
