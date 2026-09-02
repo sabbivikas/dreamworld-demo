@@ -29,8 +29,10 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { headers: cors(env) });
 
     if (url.pathname === '/generate' && request.method === 'POST') {
-      const { prompt } = await request.json().catch(() => ({}));
+      const { prompt, model } = await request.json().catch(() => ({}));
       if (!prompt || typeof prompt !== 'string' || prompt.length > 500) return json(env, { error: 'bad prompt' }, 400);
+      const ALLOWED_MODELS = ['marble-1.0-draft', 'marble-1.0', 'marble-1.1', 'marble-1.1-plus'];
+      const useModel = ALLOWED_MODELS.includes(model) ? model : (env.MARBLE_MODEL || 'marble-1.1');
 
       if (env.MOCK === 'true' || !env.WLT_API_KEY) {
         const id = 'mock-' + crypto.randomUUID();
@@ -43,13 +45,20 @@ export default {
         headers: { 'Content-Type': 'application/json', 'WLT-Api-Key': env.WLT_API_KEY },
         body: JSON.stringify({
           display_name: prompt.slice(0, 60),
-          model: env.MARBLE_MODEL || 'marble-1.1',
+          model: useModel,
           world_prompt: { type: 'text', text_prompt: prompt },
         }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) return json(env, { error: data.error || ('worldlabs ' + r.status) }, r.status);
       return json(env, { operation_id: data.operation_id });
+    }
+
+    if (url.pathname === '/credits' && request.method === 'GET') {
+      if (env.MOCK === 'true' || !env.WLT_API_KEY) return json(env, { mock: true, balance: null });
+      const r = await fetch(`${API}/credits`, { headers: { 'WLT-Api-Key': env.WLT_API_KEY } });
+      const data = await r.json().catch(() => ({}));
+      return json(env, data, r.status);
     }
 
     const m = url.pathname.match(/^\/status\/([A-Za-z0-9-]+)$/);
