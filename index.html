@@ -72,6 +72,12 @@
     background:rgba(8,4,24,.5); border:1px solid rgba(255,255,255,.1); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
     transition:opacity 1.2s ease; }
   #hint.gone { opacity:0; }
+  #dpad { position:absolute; bottom:calc(96px + env(safe-area-inset-bottom)); right:14px; display:none;
+    grid-template-columns:repeat(3,54px); grid-template-rows:repeat(2,54px); gap:6px; pointer-events:auto; z-index:30; }
+  #dpad.on { display:grid; }
+  #dpad button { border-radius:16px; background:rgba(8,4,24,.55); border:1px solid rgba(180,140,255,.25);
+    color:#fff; font-size:19px; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); touch-action:none; }
+  #dpad button:active { background:rgba(140,60,220,.6); }
   #stick { position:absolute; width:112px; height:112px; border-radius:50%; border:1.5px solid rgba(255,255,255,.22);
     background:rgba(255,255,255,.05); display:none; pointer-events:none; }
   #nub { position:absolute; width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,.38);
@@ -108,6 +114,7 @@
   <div id="world-tag"><span id="world-name"></span><button id="again-btn">new world</button></div>
   <div id="hint">drag to look &nbsp;&middot;&nbsp; left thumb to wander</div>
   <div id="stick"><div id="nub"></div></div>
+  <div id="dpad"><span></span><button data-k="w">&#9650;</button><span></span><button data-k="a">&#9664;</button><button data-k="s">&#9660;</button><button data-k="d">&#9654;</button></div>
   <div id="chatwrap">
     <div id="chatlog"></div>
     <form id="chatbar">
@@ -157,7 +164,7 @@
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
-  "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/0.1.10/spark.module.js"
+  "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/2.1.0/spark.module.js"
 } }
 </script>
 
@@ -793,6 +800,15 @@ let yaw = 0, pitch = 0;
 let joystick = { active: false, id: -1, dx: 0, dy: 0, ox: 0, oy: 0 };
 let look = { active: false, id: -1, lx: 0, ly: 0 };
 const keys = {};
+const dpad = document.getElementById('dpad');
+if (isTouch) dpad.classList.add('on');
+dpad.querySelectorAll('button').forEach(b => {
+  const k = b.dataset.k;
+  b.addEventListener('pointerdown', (e) => { e.preventDefault(); b.setPointerCapture(e.pointerId); keys[k] = true; });
+  const off = () => { keys[k] = false; };
+  b.addEventListener('pointerup', off);
+  b.addEventListener('pointercancel', off);
+});
 
 const stickEl = document.getElementById('stick'), nub = document.getElementById('nub');
 const cv = renderer.domElement;
@@ -1131,7 +1147,7 @@ async function marbleGenerate(prompt, onTick) {
     if (s.error) throw new Error(s.error);
     if (s.done) {
       const urls = s.assets && s.assets.splats && s.assets.splats.spz_urls || {};
-      const spz = urls['500k'] || urls['100k'] || urls.full_res;
+      const spz = (isTouch && urls['100k']) || urls['500k'] || urls['100k'] || urls.full_res;
       if (!spz) throw new Error('no splat in result');
       const col = s.assets && s.assets.mesh && s.assets.mesh.collider_mesh_url;
       const prox = u => /worldlabs/.test(u) ? MARBLE_WORKER + '/asset?url=' + encodeURIComponent(u) : u;
@@ -1156,7 +1172,7 @@ async function enterSplatWorld(spzUrl, label, opts) {
   splatMaxR = opts.battle ? 40 : 30;
   yaw = 0; pitch = 0; intro = .6;
   document.getElementById('world-name').textContent = label || 'your world';
-  let groundY = null, worldExt = null;
+  let groundY = null, groundHit = null, worldExt = null;
   if (opts.collider) {
     try {
       const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
@@ -1169,20 +1185,25 @@ async function enterSplatWorld(spzUrl, label, opts) {
       colScene.scale.setScalar(S); colScene.position.set(ox, 0, oz); colScene.updateMatrixWorld(true);
       splatMesh.scale.setScalar(S); splatMesh.position.set(ox, 0, oz);
       const rc = new THREE.Raycaster(), DOWN = new THREE.Vector3(0, -1, 0), ORG = new THREE.Vector3();
-      groundY = (x, z) => { ORG.set(x, 500, z); rc.set(ORG, DOWN); const h = rc.intersectObject(colScene, true); return h.length ? h[0].point.y : 0; };
+      groundY = (x, z) => { ORG.set(x, 500, z); rc.set(ORG, DOWN); const h = rc.intersectObject(colScene, true); return h.length ? h[h.length - 1].point.y : 0; };
+      groundHit = (x, z) => { ORG.set(x, 500, z); rc.set(ORG, DOWN); return rc.intersectObject(colScene, true).length > 0; };
       splatGroundFn = groundY;
       worldExt = { hx: S * (bbox.max.x - bbox.min.x) / 2, hz: S * (bbox.max.z - bbox.min.z) / 2 };
       splatMaxR = Math.min(worldExt.hx, worldExt.hz) * .95;
     } catch (e) { console.warn('collider unavailable, flat ground:', e); }
   }
-  if (!groundY) { groundY = () => 0; splatGroundFn = null; }
+  if (!groundY) { groundY = () => 0; groundHit = () => true; splatGroundFn = null; }
   if (opts.battle) {
     const sz0 = worldExt ? worldExt.hz * .7 : 14;
     const gy0 = groundY(0, sz0);
     pos.set(0, gy0 + 2.0, sz0);
     current = buildBattleOnSplat(root, groundY, gy0, worldExt);
   } else {
-    pos.set(0, groundY(0, 4) + 1.7, 4);
+    let sp = null;
+    for (const c of [[0, 4], [3, 4], [-3, 4], [0, 8], [6, 4], [-6, 4], [0, 0], [3, 8], [-3, 8], [0, 12], [8, 8], [-8, 8]]) {
+      if (groundHit(c[0], c[1])) { sp = c; break; }
+    }
+    pos.set(sp ? sp[0] : 0, (sp ? groundY(sp[0], sp[1]) : 0) + 1.7, sp ? sp[1] : 4);
   }
 }
 
@@ -1240,8 +1261,8 @@ const CHIPS = [HERO_BATTLE, HERO_FOREST,
 ];
 // hero worlds: baked full-quality marble chips (no per-tap generation cost)
 const FIXED_WORLDS = {
-  [HERO_BATTLE]: { spz: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2F6094e206-b73c-4459-99c4-c95a2f877c01_ceramic_500k.spz", col: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2F8c73daa0.glb", battle: true },
-  [HERO_FOREST]: { spz: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2Fed22d622-9cbf-4fbe-8426-6e514f58122a_ceramic_500k.spz", col: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2Fc1427893.glb", battle: false },
+  [HERO_BATTLE]: { spz: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2F6094e206-b73c-4459-99c4-c95a2f877c01_ceramic_500k.spz", spzLite: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2Fa23bf22d-3dcd-463d-995d-90237661db36_dust_100k.spz", col: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2F8c73daa0.glb", battle: true },
+  [HERO_FOREST]: { spz: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2Fed22d622-9cbf-4fbe-8426-6e514f58122a_ceramic_500k.spz", spzLite: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2F358bf817-3ce1-45fd-b510-7c526a06da92_dust_100k.spz", col: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2Fc1427893.glb", battle: false },
 };
 const chipsEl = document.getElementById('chips');
 for (const label of CHIPS) {
@@ -1253,7 +1274,7 @@ for (const label of CHIPS) {
 
 const landing = document.getElementById('landing'), veil = document.getElementById('veil'), hud = document.getElementById('hud');
 const hint = document.getElementById('hint');
-hint.textContent = isTouch ? 'drag to look  ·  left thumb to wander' : 'drag to look  ·  WASD to wander';
+hint.textContent = isTouch ? 'drag to look  ·  arrows to move' : 'drag to look  ·  WASD to wander';
 document.getElementById('dream-form').addEventListener('submit', (e) => { e.preventDefault();
   begin(document.getElementById('dream-input').value); });
 document.getElementById('again-btn').addEventListener('click', () => {
@@ -1285,7 +1306,7 @@ function begin(text) {
     try {
       const fixed = FIXED_WORLDS[dream];
       if (fixed) {
-        await enterSplatWorld(fixed.spz, dream.slice(0, 24), { battle: fixed.battle, collider: fixed.col });
+        await enterSplatWorld((isTouch && fixed.spzLite) || fixed.spz, dream.slice(0, 24), { battle: fixed.battle, collider: fixed.col });
         usedMarble = true;
         throw 'skip-normal';
       }
