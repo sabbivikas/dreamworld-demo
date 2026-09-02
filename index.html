@@ -1213,14 +1213,19 @@ document.getElementById('chatbar').addEventListener('submit', (e) => {
 });
 
 /* ---------------- UI wiring ---------------- */
-const CHIPS = [
+const HERO_BATTLE = 'a mythic battlefield at golden dusk - two hosts, ten thousand banners, embers on the wind';
+const HERO_FOREST = 'an enchanted forest glowing at dusk - fireflies, god-rays, ancient light';
+const CHIPS = [HERO_BATTLE, HERO_FOREST,
   'a neon city where it never stops raining',
-  'an enchanted forest glowing at dusk',
   'the lost city of atlantis, glowing coral',
   'golden ruins in a desert sunset',
   'drifting through a violet nebula',
-  'an epic battlefield at dusk, banners catching fire',
 ];
+// hero worlds: baked full-quality marble chips (no per-tap generation cost)
+const FIXED_WORLDS = {
+  [HERO_BATTLE]: { spz: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2F6094e206-b73c-4459-99c4-c95a2f877c01_ceramic_500k.spz", col: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2F8c73daa0.glb", battle: true },
+  [HERO_FOREST]: { spz: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2Fed22d622-9cbf-4fbe-8426-6e514f58122a_ceramic_500k.spz", col: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2Fc1427893.glb", battle: false },
+};
 const chipsEl = document.getElementById('chips');
 for (const label of CHIPS) {
   const b = document.createElement('button');
@@ -1261,6 +1266,12 @@ function begin(text) {
   (async () => {
     let usedMarble = false;
     try {
+      const fixed = FIXED_WORLDS[dream];
+      if (fixed) {
+        await enterSplatWorld(fixed.spz, dream.slice(0, 24), { battle: fixed.battle, collider: fixed.col });
+        usedMarble = true;
+        throw 'skip-normal';
+      }
       if (TEST_BATTLE) {
         await enterSplatWorld(TEST_SPZ, 'battle over marble splat', { battle: true, collider: TEST_COL });
         usedMarble = true;
