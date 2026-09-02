@@ -917,6 +917,19 @@ function frame() {
   }
   if (current) current.update(dt, t);
   if (composer && !splatMode) composer.render(); else renderer.render(scene, camera);
+  if (pendingProbe && performance.now() > pendingProbe.at && splatMode) {
+    const pp = pendingProbe; pendingProbe = null;
+    try {
+      const gl = renderer.getContext();
+      const px = new Uint8Array(4 * 16);
+      gl.readPixels(Math.floor(gl.drawingBufferWidth / 2), Math.floor(gl.drawingBufferHeight * .12), 4, 4, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      let r = 0, g = 0, bl = 0;
+      for (let i = 0; i < 16; i++) { r += px[i*4]; g += px[i*4+1]; bl += px[i*4+2]; }
+      r /= 16; g /= 16; bl /= 16;
+      const match = Math.abs(r - pp.bg[0]) < 14 && Math.abs(g - pp.bg[1]) < 14 && Math.abs(bl - pp.bg[2]) < 14;
+      if (match) { console.warn('splat render probe failed - pano fallback'); enterPanoWorld(pp.pano, pp.label, pp.opts).catch(e => console.warn('pano fallback failed', e)); }
+    } catch (e) { console.warn('probe error', e); }
+  }
 }
 frame();
 
@@ -1116,7 +1129,7 @@ const FORCE_MOCK = new URLSearchParams(location.search).has('mock') || location.
 const TEST_BATTLE = new URLSearchParams(location.search).has('testbattle');
 const TEST_SPZ = MARBLE_WORKER + '/asset?url=' + encodeURIComponent('https://cdn.marble.worldlabs.ai/86c9176a-9019-40e1-90a0-7aea5d0e55a3/069ab923-379d-482c-bba5-d7c9c9f0f989_sand_500k.spz');
 const TEST_COL = MARBLE_WORKER + '/asset?url=' + encodeURIComponent('https://cdn.marble.worldlabs.ai/86c9176a-9019-40e1-90a0-7aea5d0e55a3/4d59a32d.glb');
-let splatMesh = null, splatMode = false, currentGenre = null, splatMaxR = 30, splatGroundFn = null;
+let splatMesh = null, splatMode = false, currentGenre = null, splatMaxR = 30, splatGroundFn = null, pendingProbe = null;
 
 const STORY = [
   { keys: ['battle','war','army','armies','siege','clash','legion','battlefield'],
@@ -1151,7 +1164,8 @@ async function marbleGenerate(prompt, onTick) {
       if (!spz) throw new Error('no splat in result');
       const col = s.assets && s.assets.mesh && s.assets.mesh.collider_mesh_url;
       const prox = u => /worldlabs/.test(u) ? MARBLE_WORKER + '/asset?url=' + encodeURIComponent(u) : u;
-      return { spz: prox(spz), viewer: s.viewer_url || '', collider: col ? prox(col) : null };
+      const pano = s.assets && s.assets.imagery && s.assets.imagery.pano_url;
+      return { spz: prox(spz), viewer: s.viewer_url || '', collider: col ? prox(col) : null, pano: pano ? prox(pano) : null };
     }
   }
   throw new Error('timeout');
@@ -1159,6 +1173,7 @@ async function marbleGenerate(prompt, onTick) {
 
 async function enterSplatWorld(spzUrl, label, opts) {
   opts = opts || {};
+  if (typeof DecompressionStream === 'undefined' && opts.pano) { console.warn('no DecompressionStream - pano fallback'); return enterPanoWorld(opts.pano, label, opts); }
   if (splatMesh) { scene.remove(splatMesh); splatMesh.dispose && splatMesh.dispose(); splatMesh = null; }
   if (root) { scene.remove(root); root.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
   const spark = await import('@sparkjsdev/spark');
@@ -1193,6 +1208,7 @@ async function enterSplatWorld(spzUrl, label, opts) {
     } catch (e) { console.warn('collider unavailable, flat ground:', e); }
   }
   if (!groundY) { groundY = () => 0; groundHit = () => true; splatGroundFn = null; }
+  if (opts.pano) pendingProbe = { at: performance.now() + 12000, bg: opts.battle ? [58, 31, 46] : [11, 14, 26], pano: opts.pano, label, opts };
   if (opts.battle) {
     const sz0 = worldExt ? worldExt.hz * .7 : 14;
     const gy0 = groundY(0, sz0);
@@ -1211,6 +1227,30 @@ async function enterSplatWorld(spzUrl, label, opts) {
     }
     if (!sp) sp = fallback;
     pos.set(sp ? sp[0] : 0, (sp ? groundY(sp[0], sp[1]) : 0) + 1.7, sp ? sp[1] : 4);
+  }
+}
+
+async function enterPanoWorld(panoUrl, label, opts) {
+  opts = opts || {};
+  if (splatMesh) { scene.remove(splatMesh); splatMesh.dispose && splatMesh.dispose(); splatMesh = null; }
+  if (root) { scene.remove(root); root.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
+  root = new THREE.Group(); scene.add(root);
+  current = null; flyMode = false; splatMode = true; splatGroundFn = null; pendingProbe = null;
+  scene.fog = null; scene.background = new THREE.Color(opts.battle ? 0x3a1f2e : 0x0b0e1a);
+  currentGenre = opts.battle ? 'battle' : null;
+  if (!opts.battle) stopWarAudio();
+  splatMaxR = opts.battle ? 20 : 6;
+  const tex = await new THREE.TextureLoader().loadAsync(panoUrl);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(90, 48, 32), new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide }));
+  root.add(sphere);
+  yaw = 0; pitch = 0; intro = 0;
+  document.getElementById('world-name').textContent = label || 'your world';
+  if (opts.battle) {
+    pos.set(0, 2.0, 14);
+    current = buildBattleOnSplat(root, () => 0, 0, { hx: 27, hz: 26 });
+  } else {
+    pos.set(0, 1.7, 0.01);
   }
 }
 
@@ -1268,8 +1308,8 @@ const CHIPS = [HERO_BATTLE, HERO_FOREST,
 ];
 // hero worlds: baked full-quality marble chips (no per-tap generation cost)
 const FIXED_WORLDS = {
-  [HERO_BATTLE]: { spz: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2F6094e206-b73c-4459-99c4-c95a2f877c01_ceramic_500k.spz", spzLite: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2Fa23bf22d-3dcd-463d-995d-90237661db36_dust_100k.spz", col: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2F8c73daa0.glb", battle: true },
-  [HERO_FOREST]: { spz: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2Fed22d622-9cbf-4fbe-8426-6e514f58122a_ceramic_500k.spz", spzLite: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2F358bf817-3ce1-45fd-b510-7c526a06da92_dust_100k.spz", col: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2Fc1427893.glb", battle: false },
+  [HERO_BATTLE]: { spz: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2F6094e206-b73c-4459-99c4-c95a2f877c01_ceramic_500k.spz", spzLite: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2Fa23bf22d-3dcd-463d-995d-90237661db36_dust_100k.spz", col: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2F8c73daa0.glb", pano: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F26cd9141-9c4d-4feb-8bb7-dc3c8f5c266f%2Fd4ae9308-d34d-4632-8194-00430b593c3e_panos%2Frgb_0.png", battle: true },
+  [HERO_FOREST]: { spz: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2Fed22d622-9cbf-4fbe-8426-6e514f58122a_ceramic_500k.spz", spzLite: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2F358bf817-3ce1-45fd-b510-7c526a06da92_dust_100k.spz", col: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2Fc1427893.glb", pano: "https://dreamworld-marble-proxy.sabbi-vikas.workers.dev/asset?url=https%3A%2F%2Fcdn.marble.worldlabs.ai%2F853764d6-0993-4dc8-b212-a9f1cd2f5b77%2F0dccaba6-9048-4c3b-99d4-d111fd15f58e_panos%2Frgb_0.png", battle: false },
 };
 const chipsEl = document.getElementById('chips');
 for (const label of CHIPS) {
@@ -1313,7 +1353,7 @@ function begin(text) {
     try {
       const fixed = FIXED_WORLDS[dream];
       if (fixed) {
-        await enterSplatWorld((isTouch && fixed.spzLite) || fixed.spz, dream.slice(0, 24), { battle: fixed.battle, collider: fixed.col });
+        await enterSplatWorld((isTouch && fixed.spzLite) || fixed.spz, dream.slice(0, 24), { battle: fixed.battle, collider: fixed.col, pano: fixed.pano });
         usedMarble = true;
         throw 'skip-normal';
       }
@@ -1325,7 +1365,7 @@ function begin(text) {
       const res = await marbleGenerate(dream, (el) => {
         vt.textContent = 'weaving your world\u2026 ' + Math.round(el) + 's - real generation takes a few minutes';
       });
-      await enterSplatWorld(res.spz, dream.slice(0, 24), { battle: genre === 'battle' || (storyChar && storyChar.name === 'commander rye'), collider: res.collider });
+      await enterSplatWorld(res.spz, dream.slice(0, 24), { battle: genre === 'battle' || (storyChar && storyChar.name === 'commander rye'), collider: res.collider, pano: res.pano });
       usedMarble = true;
     } catch (e) {
       if (e !== 'skip-normal') console.warn('marble path unavailable, prebaked fallback:', e);
