@@ -801,7 +801,7 @@ let joystick = { active: false, id: -1, dx: 0, dy: 0, ox: 0, oy: 0 };
 let look = { active: false, id: -1, lx: 0, ly: 0 };
 const keys = {};
 const dpad = document.getElementById('dpad');
-if (isTouch) dpad.classList.add('on');
+if (isTouch || new URLSearchParams(location.search).has('dpad')) dpad.classList.add('on');
 dpad.querySelectorAll('button').forEach(b => {
   const k = b.dataset.k;
   b.addEventListener('pointerdown', (e) => { e.preventDefault(); b.setPointerCapture(e.pointerId); keys[k] = true; });
@@ -1172,19 +1172,19 @@ async function enterSplatWorld(spzUrl, label, opts) {
   splatMaxR = opts.battle ? 40 : 30;
   yaw = 0; pitch = 0; intro = .6;
   document.getElementById('world-name').textContent = label || 'your world';
-  let groundY = null, groundHit = null, worldExt = null;
+  let groundY = null, groundHit = null, worldExt = null, colSceneRef = null, rcRef = null;
   if (opts.collider) {
     try {
       const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
       const gltf = await new GLTFLoader().loadAsync(opts.collider);
-      const colScene = gltf.scene;
+      const colScene = gltf.scene; colSceneRef = colScene;
       const bbox = new THREE.Box3().setFromObject(colScene);
       const dim = Math.max(bbox.max.x - bbox.min.x, bbox.max.z - bbox.min.z);
       const S = dim > .1 ? Math.min(10, Math.max(1, 64 / dim)) : 1;
       const ox = -S * (bbox.min.x + bbox.max.x) / 2, oz = -S * (bbox.min.z + bbox.max.z) / 2;
       colScene.scale.setScalar(S); colScene.position.set(ox, 0, oz); colScene.updateMatrixWorld(true);
       splatMesh.scale.setScalar(S); splatMesh.position.set(ox, 0, oz);
-      const rc = new THREE.Raycaster(), DOWN = new THREE.Vector3(0, -1, 0), ORG = new THREE.Vector3();
+      const rc = new THREE.Raycaster(); rcRef = rc; const DOWN = new THREE.Vector3(0, -1, 0), ORG = new THREE.Vector3();
       groundY = (x, z) => { ORG.set(x, 500, z); rc.set(ORG, DOWN); const h = rc.intersectObject(colScene, true); return h.length ? h[h.length - 1].point.y : 0; };
       groundHit = (x, z) => { ORG.set(x, 500, z); rc.set(ORG, DOWN); return rc.intersectObject(colScene, true).length > 0; };
       splatGroundFn = groundY;
@@ -1199,10 +1199,17 @@ async function enterSplatWorld(spzUrl, label, opts) {
     pos.set(0, gy0 + 2.0, sz0);
     current = buildBattleOnSplat(root, groundY, gy0, worldExt);
   } else {
-    let sp = null;
+    let sp = null, fallback = null;
+    const ORG2 = new THREE.Vector3(), FWD = new THREE.Vector3(0, 0, -1);
     for (const c of [[0, 4], [3, 4], [-3, 4], [0, 8], [6, 4], [-6, 4], [0, 0], [3, 8], [-3, 8], [0, 12], [8, 8], [-8, 8]]) {
-      if (groundHit(c[0], c[1])) { sp = c; break; }
+      if (!groundHit(c[0], c[1])) continue;
+      if (!fallback) fallback = c;
+      if (!colSceneRef || !rcRef) { sp = c; break; }
+      ORG2.set(c[0], groundY(c[0], c[1]) + 1.6, c[1]); rcRef.set(ORG2, FWD); rcRef.far = 4;
+      const blocked = rcRef.intersectObject(colSceneRef, true).length > 0; rcRef.far = Infinity;
+      if (!blocked) { sp = c; break; }
     }
+    if (!sp) sp = fallback;
     pos.set(sp ? sp[0] : 0, (sp ? groundY(sp[0], sp[1]) : 0) + 1.7, sp ? sp[1] : 4);
   }
 }
