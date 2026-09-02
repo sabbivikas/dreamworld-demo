@@ -961,7 +961,8 @@ addEventListener('keydown', () => { if (started && currentGenre === 'battle') { 
 /* ---------------- battle layer over a marble splat ----------------
    Same two-hosts clash as the prebaked Duskfield, compressed to a marble
    diorama's footprint and conformed to the splat's collider terrain. */
-function buildBattleOnSplat(root, groundY, gy0) {
+function buildBattleOnSplat(root, groundY, gy0, ext) {
+  ext = ext || { hx: 27, hz: 30 };
   root.add(new THREE.AmbientLight(0xffd9b0, 1.25));
   const sunL = new THREE.DirectionalLight(0xffb37d, 1.6); sunL.position.set(-30, 25, -14); root.add(sunL);
   const rim = new THREE.DirectionalLight(0xff5a3c, .6); rim.position.set(28, 12, 20); root.add(rim);
@@ -994,10 +995,10 @@ function buildBattleOnSplat(root, groundY, gy0) {
   const troopsA = [], troopsB = [];
   for (let i = 0; i < COUNT; i++) {
     const frontA = i < 32;
-    const xa = frontA ? rand(-6.3, -2.3) : rand(-27, -6.8), za = rand(-36, 36);
+    const xa = frontA ? rand(-6.3, -2.3) : rand(-ext.hx * .85, -6.8), za = rand(-ext.hz, ext.hz);
     troopsA.push({ x: xa, z: za, gy: groundY(xa, za), p: Math.random() * 6.28, f: frontA ? 1 : .35, s: rand(1.05, 1.28) });
     const frontB = i < 32;
-    const xb = frontB ? rand(2.3, 6.3) : rand(6.8, 27), zb = rand(-36, 36);
+    const xb = frontB ? rand(2.3, 6.3) : rand(6.8, ext.hx * .85), zb = rand(-ext.hz, ext.hz);
     troopsB.push({ x: xb, z: zb, gy: groundY(xb, zb), p: Math.random() * 6.28, f: frontB ? 1 : .35, s: rand(1.05, 1.28) });
   }
 
@@ -1009,7 +1010,7 @@ function buildBattleOnSplat(root, groundY, gy0) {
     pole.position.y = 3.5; g.add(pole);
     const cloth = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.4, 6, 3), new THREE.MeshStandardMaterial({ color: col, side: THREE.DoubleSide, roughness: .8, emissive: col, emissiveIntensity: .3 }));
     cloth.position.set(1.25, 6, 0); g.add(cloth);
-    const bx = side * rand(3.6, 24.8), bz = rand(-38, 38);
+    const bx = side * rand(3.6, ext.hx * .8), bz = rand(-ext.hz, ext.hz);
     g.position.set(bx, groundY(bx, bz), bz);
     root.add(g); banners.push({ g, cloth, p: Math.random() * 6.28 });
   }
@@ -1021,13 +1022,13 @@ function buildBattleOnSplat(root, groundY, gy0) {
   function newFlight(a) {
     const dir = Math.random() < .5 ? 1 : -1;
     a.x0 = -dir * rand(9, 31); a.x1 = dir * rand(3.6, 27);
-    a.z0 = rand(-38, 38); a.z1 = a.z0 + rand(-7, 7);
+    a.z0 = rand(-ext.hz, ext.hz); a.z1 = a.z0 + rand(-7, 7);
     a.peak = rand(7, 13); a.T = rand(1.6, 2.6); a.u = Math.random(); a.dir = dir;
   }
   for (let i = 0; i < AN; i++) { const a = {}; newFlight(a); flights.push(a); }
 
   const E = 200, ep = new Float32Array(E * 3);
-  for (let i = 0; i < E; i++) { ep[i*3] = rand(-40, 40); ep[i*3+1] = gy0 + rand(0, 13); ep[i*3+2] = rand(-40, 40); }
+  for (let i = 0; i < E; i++) { ep[i*3] = rand(-ext.hx - 4, ext.hx + 4); ep[i*3+1] = gy0 + rand(0, 13); ep[i*3+2] = rand(-ext.hz - 4, ext.hz + 4); }
   const eGeo = new THREE.BufferGeometry(); eGeo.setAttribute('position', new THREE.BufferAttribute(ep, 3));
   const embers = new THREE.Points(eGeo, new THREE.PointsMaterial({ size: .3, color: 0xffa64d, map: softDot, transparent: true, opacity: .85, blending: THREE.AdditiveBlending, depthWrite: false }));
   root.add(embers);
@@ -1036,7 +1037,7 @@ function buildBattleOnSplat(root, groundY, gy0) {
   for (let i = 0; i < 6; i++) {
     const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot, color: 0xff8c3a, transparent: true, opacity: .8, blending: THREE.AdditiveBlending, depthWrite: false }));
     f.scale.setScalar(rand(2.5, 4));
-    const fx = rand(-1, 1) * rand(3, 9), fz = rand(-31, 3.6);
+    const fx = rand(-1, 1) * rand(3, 9), fz = rand(-ext.hz, ext.hz * .15);
     f.position.set(fx, groundY(fx, fz) + 1.2, fz);
     root.add(f); fires.push({ f, p: Math.random() * 6.28 });
   }
@@ -1050,7 +1051,7 @@ function buildBattleOnSplat(root, groundY, gy0) {
   const beats = [
     { x: cmdX, z: cmdZ, r: 3.5, fired: false, line: 'steady, friend. the line holds because we hold it.' },
     { x: 0, z: -0.9, r: 3, fired: false, line: 'the horns! brace - the hosts meet!' },
-    { x: 0, z: -23.4, r: 4, fired: false, line: 'from this ridge you can see both hosts entire. remember this sight.' },
+    { x: 0, z: -ext.hz * .8, r: 4, fired: false, line: 'from this ridge you can see both hosts entire. remember this sight.' },
   ];
 
   return {
@@ -1155,7 +1156,7 @@ async function enterSplatWorld(spzUrl, label, opts) {
   splatMaxR = opts.battle ? 40 : 30;
   yaw = 0; pitch = 0; intro = .6;
   document.getElementById('world-name').textContent = label || 'your world';
-  let groundY = null;
+  let groundY = null, worldExt = null;
   if (opts.collider) {
     try {
       const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
@@ -1170,13 +1171,15 @@ async function enterSplatWorld(spzUrl, label, opts) {
       const rc = new THREE.Raycaster(), DOWN = new THREE.Vector3(0, -1, 0), ORG = new THREE.Vector3();
       groundY = (x, z) => { ORG.set(x, 500, z); rc.set(ORG, DOWN); const h = rc.intersectObject(colScene, true); return h.length ? h[0].point.y : 0; };
       splatGroundFn = groundY;
+      worldExt = { hx: S * (bbox.max.x - bbox.min.x) / 2, hz: S * (bbox.max.z - bbox.min.z) / 2 };
+      splatMaxR = Math.min(worldExt.hx, worldExt.hz) * .95;
     } catch (e) { console.warn('collider unavailable, flat ground:', e); }
   }
   if (!groundY) { groundY = () => 0; splatGroundFn = null; }
   if (opts.battle) {
     const gy0 = groundY(0, 14);
     pos.set(0, gy0 + 1.7, 14);
-    current = buildBattleOnSplat(root, groundY, gy0);
+    current = buildBattleOnSplat(root, groundY, gy0, worldExt);
   } else {
     pos.set(0, groundY(0, 4) + 1.7, 4);
   }
