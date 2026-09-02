@@ -958,7 +958,7 @@ addEventListener('pointerdown', () => { if (started && currentGenre === 'battle'
 addEventListener('keydown', () => { if (started && currentGenre === 'battle') { warOn = true; startWarAudio(); } });
 
 /* ---------------- marble: real generation + splat worlds ---------------- */
-const MARBLE_WORKER = 'https://dreamworld-marble-proxy.YOUR-SUBDOMAIN.workers.dev';
+const MARBLE_WORKER = 'https://dreamworld-marble-proxy.sabbi-vikas.workers.dev';
 const MOCK_SPLAT = 'https://sparkjs.dev/assets/splats/butterfly.spz';
 const FORCE_MOCK = new URLSearchParams(location.search).has('mock') || location.hash.includes('mock');
 let splatMesh = null, splatMode = false, currentGenre = null;
