@@ -1208,7 +1208,7 @@ async function enterSplatWorld(spzUrl, label, opts) {
     } catch (e) { console.warn('collider unavailable, flat ground:', e); }
   }
   if (!groundY) { groundY = () => 0; groundHit = () => true; splatGroundFn = null; }
-  if (opts.pano) pendingProbe = { at: performance.now() + 12000, bg: opts.battle ? [58, 31, 46] : [11, 14, 26], pano: opts.pano, label, opts };
+  if (opts.pano) pendingProbe = { at: performance.now() + 6000, bg: opts.battle ? [58, 31, 46] : [11, 14, 26], pano: opts.pano, label, opts };
   if (opts.battle) {
     const sz0 = worldExt ? worldExt.hz * .7 : 14;
     const gy0 = groundY(0, sz0);
