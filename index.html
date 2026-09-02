@@ -890,7 +890,7 @@ function frame() {
       pos.z += (-cos * -mz - sin * mx) * sp * dt;
     }
     const d = Math.hypot(pos.x, pos.z);
-    const maxR = splatMode ? 30 : 150;
+    const maxR = splatMode ? splatMaxR : 150;
     if (d > maxR) { pos.x *= maxR / d; pos.z *= maxR / d; }
     const moving = Math.abs(mx) + Math.abs(mz) > .05;
     const bob = moving ? Math.sin(t * 7) * .12 : Math.sin(t * 1.2) * .05;
@@ -902,6 +902,7 @@ function frame() {
   if (composer && !splatMode) composer.render(); else renderer.render(scene, camera);
 }
 frame();
+if (TEST_BATTLE) setTimeout(() => begin('an epic battlefield at dusk, banners catching fire'), 500);
 
 
 /* ---------------- war ambience (synth, gesture-gated) ---------------- */
@@ -957,11 +958,148 @@ function stopWarAudio() { warOn = false; if (warCtx) warCtx.suspend(); }
 addEventListener('pointerdown', () => { if (started && currentGenre === 'battle') { warOn = true; startWarAudio(); } });
 addEventListener('keydown', () => { if (started && currentGenre === 'battle') { warOn = true; startWarAudio(); } });
 
+/* ---------------- battle layer over a marble splat ----------------
+   Same two-hosts clash as the prebaked Duskfield, compressed to a marble
+   diorama's footprint and conformed to the splat's collider terrain. */
+function buildBattleOnSplat(root, groundY, gy0) {
+  root.add(new THREE.AmbientLight(0xffd9b0, 1.25));
+  const sunL = new THREE.DirectionalLight(0xffb37d, 1.6); sunL.position.set(-30, 25, -14); root.add(sunL);
+  const rim = new THREE.DirectionalLight(0xff5a3c, .6); rim.position.set(28, 12, 20); root.add(rim);
+
+  function soldierTex(trim) {
+    const c = document.createElement('canvas'); c.width = 96; c.height = 192;
+    const x = c.getContext('2d');
+    x.strokeStyle = trim; x.fillStyle = trim; x.lineWidth = 5; x.lineCap = 'round';
+    x.beginPath(); x.moveTo(66, 8); x.lineTo(56, 128); x.stroke();
+    x.beginPath(); x.moveTo(66, 8); x.lineTo(60, 22); x.lineTo(72, 22); x.closePath(); x.fill();
+    x.beginPath(); x.arc(44, 40, 11, 0, 6.29); x.fill();
+    x.beginPath(); x.moveTo(44, 52); x.lineTo(30, 108); x.lineTo(58, 108); x.closePath(); x.fill();
+    x.lineWidth = 7;
+    x.beginPath(); x.moveTo(36, 106); x.lineTo(30, 152); x.stroke();
+    x.beginPath(); x.moveTo(52, 106); x.lineTo(58, 152); x.stroke();
+    x.beginPath(); x.moveTo(50, 62); x.lineTo(62, 76); x.stroke();
+    x.beginPath(); x.ellipse(24, 84, 12, 20, .2, 0, 6.29); x.fill();
+    return new THREE.CanvasTexture(c);
+  }
+  const texA = soldierTex('#e8b34a'), texB = soldierTex('#b03328');
+  const p1 = new THREE.PlaneGeometry(1.9, 3.8); p1.rotateY(Math.PI / 4);
+  const p2 = new THREE.PlaneGeometry(1.9, 3.8); p2.rotateY(-Math.PI / 4);
+  const solGeo = mergeGeometries([p1, p2]);
+  const COUNT = 90;
+  function hostMesh(tex) {
+    return new THREE.InstancedMesh(solGeo, new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: .1, side: THREE.DoubleSide }), COUNT);
+  }
+  const hostA = hostMesh(texA), hostB = hostMesh(texB);
+  root.add(hostA); root.add(hostB);
+  const troopsA = [], troopsB = [];
+  for (let i = 0; i < COUNT; i++) {
+    const frontA = i < 32;
+    const xa = frontA ? rand(-6.3, -2.3) : rand(-27, -6.8), za = rand(-36, 36);
+    troopsA.push({ x: xa, z: za, gy: groundY(xa, za), p: Math.random() * 6.28, f: frontA ? 1 : .35, s: rand(1.05, 1.28) });
+    const frontB = i < 32;
+    const xb = frontB ? rand(2.3, 6.3) : rand(6.8, 27), zb = rand(-36, 36);
+    troopsB.push({ x: xb, z: zb, gy: groundY(xb, zb), p: Math.random() * 6.28, f: frontB ? 1 : .35, s: rand(1.05, 1.28) });
+  }
+
+  const banners = [];
+  for (let i = 0; i < 10; i++) {
+    const side = i % 2 ? 1 : -1, col = i % 2 ? 0xb03328 : 0xe8b34a;
+    const g = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, 7, 5), new THREE.MeshStandardMaterial({ color: 0x2a1a10, roughness: .9 }));
+    pole.position.y = 3.5; g.add(pole);
+    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.4, 6, 3), new THREE.MeshStandardMaterial({ color: col, side: THREE.DoubleSide, roughness: .8, emissive: col, emissiveIntensity: .3 }));
+    cloth.position.set(1.25, 6, 0); g.add(cloth);
+    const bx = side * rand(3.6, 24.8), bz = rand(-38, 38);
+    g.position.set(bx, groundY(bx, bz), bz);
+    root.add(g); banners.push({ g, cloth, p: Math.random() * 6.28 });
+  }
+
+  const AN = 70;
+  const arrows = new THREE.InstancedMesh(new THREE.BoxGeometry(.05, .05, 1.5), new THREE.MeshBasicMaterial({ color: 0x1c0f08 }), AN);
+  root.add(arrows);
+  const flights = [];
+  function newFlight(a) {
+    const dir = Math.random() < .5 ? 1 : -1;
+    a.x0 = -dir * rand(9, 31); a.x1 = dir * rand(3.6, 27);
+    a.z0 = rand(-38, 38); a.z1 = a.z0 + rand(-7, 7);
+    a.peak = rand(7, 13); a.T = rand(1.6, 2.6); a.u = Math.random(); a.dir = dir;
+  }
+  for (let i = 0; i < AN; i++) { const a = {}; newFlight(a); flights.push(a); }
+
+  const E = 200, ep = new Float32Array(E * 3);
+  for (let i = 0; i < E; i++) { ep[i*3] = rand(-40, 40); ep[i*3+1] = gy0 + rand(0, 13); ep[i*3+2] = rand(-40, 40); }
+  const eGeo = new THREE.BufferGeometry(); eGeo.setAttribute('position', new THREE.BufferAttribute(ep, 3));
+  const embers = new THREE.Points(eGeo, new THREE.PointsMaterial({ size: .3, color: 0xffa64d, map: softDot, transparent: true, opacity: .85, blending: THREE.AdditiveBlending, depthWrite: false }));
+  root.add(embers);
+
+  const fires = [];
+  for (let i = 0; i < 6; i++) {
+    const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot, color: 0xff8c3a, transparent: true, opacity: .8, blending: THREE.AdditiveBlending, depthWrite: false }));
+    f.scale.setScalar(rand(2.5, 4));
+    const fx = rand(-1, 1) * rand(3, 9), fz = rand(-31, 3.6);
+    f.position.set(fx, groundY(fx, fz) + 1.2, fz);
+    root.add(f); fires.push({ f, p: Math.random() * 6.28 });
+  }
+
+  const cmdX = 1.1, cmdZ = 7.2, cmdGY = groundY(cmdX, cmdZ);
+  const cmd = new THREE.Mesh(solGeo, new THREE.MeshBasicMaterial({ map: texA, transparent: true, alphaTest: .1, side: THREE.DoubleSide }));
+  cmd.scale.setScalar(1.7); cmd.position.set(cmdX, cmdGY + 2.9, cmdZ); root.add(cmd);
+  const cmdGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot, color: 0xffc35c, transparent: true, opacity: .35, blending: THREE.AdditiveBlending, depthWrite: false }));
+  cmdGlow.scale.setScalar(5); cmdGlow.position.set(cmdX, cmdGY + 3.2, cmdZ + .5); root.add(cmdGlow);
+
+  const beats = [
+    { x: cmdX, z: cmdZ, r: 3.5, fired: false, line: 'steady, friend. the line holds because we hold it.' },
+    { x: 0, z: -0.9, r: 3, fired: false, line: 'the horns! brace - the hosts meet!' },
+    { x: 0, z: -23.4, r: 4, fired: false, line: 'from this ridge you can see both hosts entire. remember this sight.' },
+  ];
+
+  return {
+    update(dt, t) {
+      for (let i = 0; i < COUNT; i++) {
+        let a = troopsA[i], b = troopsB[i];
+        const luA = Math.max(0, Math.sin(t * 1.9 + a.p)) * 1.6 * a.f;
+        const luB = Math.max(0, Math.sin(t * 1.9 + b.p + 2.2)) * 1.6 * b.f;
+        setInst(hostA, i, a.x + luA, a.gy + 1.9 * a.s + Math.abs(Math.sin(t * 6 + a.p)) * .12, a.z, Math.sin(t * 3 + a.p) * .15, a.s);
+        setInst(hostB, i, b.x - luB, b.gy + 1.9 * b.s + Math.abs(Math.sin(t * 6 + b.p)) * .12, b.z, Math.sin(t * 3 + b.p) * .15, b.s);
+      }
+      hostA.instanceMatrix.needsUpdate = true; hostB.instanceMatrix.needsUpdate = true;
+      for (let i = 0; i < AN; i++) {
+        const a = flights[i]; a.u += dt / a.T; if (a.u > 1) newFlight(a);
+        const u = a.u, x = a.x0 + (a.x1 - a.x0) * u, z = a.z0 + (a.z1 - a.z0) * u, y = gy0 + 2 + a.peak * 4 * u * (1 - u);
+        EU.set(0, Math.atan2(a.x1 - a.x0, a.z1 - a.z0), (1 - 2 * u) * .9); Q.setFromEuler(EU);
+        V.set(x, y, z); S.set(1, 1, 1); M.compose(V, Q, S); arrows.setMatrixAt(i, M);
+      }
+      arrows.instanceMatrix.needsUpdate = true;
+      for (const b of banners) {
+        const posA = b.cloth.geometry.attributes.position;
+        for (let vi = 0; vi < posA.count; vi++) {
+          const vx = posA.getX(vi);
+          posA.setZ(vi, Math.sin(t * 5 + b.p + vx * 2) * .18 * (vx + 1.2) / 2.4);
+        }
+        posA.needsUpdate = true;
+      }
+      const pa = embers.geometry.attributes.position;
+      for (let i = 0; i < E; i++) { let y = pa.getY(i) + dt * (1.2 + (i % 5) * .3); if (y > gy0 + 14) y = gy0; pa.setY(i, y); pa.setX(i, pa.getX(i) + Math.sin(t + i) * dt * .4); }
+      pa.needsUpdate = true;
+      for (const fr of fires) { fr.f.material.opacity = .55 + .3 * Math.abs(Math.sin(t * 7 + fr.p)); fr.f.scale.setScalar(fr.f.scale.x * (0.97 + 0.06 * Math.abs(Math.sin(t * 9 + fr.p)))); }
+      cmdGlow.material.opacity = .28 + .1 * Math.sin(t * 2.2);
+      if (charData && charData.name === 'commander rye') {
+        for (const bt of beats) {
+          if (!bt.fired && Math.hypot(pos.x - bt.x, pos.z - bt.z) < bt.r) { bt.fired = true; addMsg(bt.line, 'char', 'commander rye'); }
+        }
+      }
+    }
+  };
+}
+
 /* ---------------- marble: real generation + splat worlds ---------------- */
 const MARBLE_WORKER = 'https://dreamworld-marble-proxy.sabbi-vikas.workers.dev';
 const MOCK_SPLAT = 'https://sparkjs.dev/assets/splats/butterfly.spz';
 const FORCE_MOCK = new URLSearchParams(location.search).has('mock') || location.hash.includes('mock');
-let splatMesh = null, splatMode = false, currentGenre = null;
+const TEST_BATTLE = new URLSearchParams(location.search).has('testbattle');
+const TEST_SPZ = MARBLE_WORKER + '/asset?url=' + encodeURIComponent('https://cdn.marble.worldlabs.ai/86c9176a-9019-40e1-90a0-7aea5d0e55a3/069ab923-379d-482c-bba5-d7c9c9f0f989_sand_500k.spz');
+const TEST_COL = MARBLE_WORKER + '/asset?url=' + encodeURIComponent('https://cdn.marble.worldlabs.ai/86c9176a-9019-40e1-90a0-7aea5d0e55a3/4d59a32d.glb');
+let splatMesh = null, splatMode = false, currentGenre = null, splatMaxR = 30;
 
 const STORY = [
   { keys: ['battle','war','army','armies','siege','clash','legion','battlefield'],
@@ -994,13 +1132,16 @@ async function marbleGenerate(prompt, onTick) {
       const urls = s.assets && s.assets.splats && s.assets.splats.spz_urls || {};
       const spz = urls['500k'] || urls['100k'] || urls.full_res;
       if (!spz) throw new Error('no splat in result');
-      return { spz: /worldlabs/.test(spz) ? MARBLE_WORKER + '/asset?url=' + encodeURIComponent(spz) : spz, viewer: s.viewer_url || '' };
+      const col = s.assets && s.assets.mesh && s.assets.mesh.collider_mesh_url;
+      const prox = u => /worldlabs/.test(u) ? MARBLE_WORKER + '/asset?url=' + encodeURIComponent(u) : u;
+      return { spz: prox(spz), viewer: s.viewer_url || '', collider: col ? prox(col) : null };
     }
   }
   throw new Error('timeout');
 }
 
-async function enterSplatWorld(spzUrl, label) {
+async function enterSplatWorld(spzUrl, label, opts) {
+  opts = opts || {};
   if (splatMesh) { scene.remove(splatMesh); splatMesh.dispose && splatMesh.dispose(); splatMesh = null; }
   if (root) { scene.remove(root); root.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
   const spark = await import('@sparkjsdev/spark');
@@ -1008,8 +1149,25 @@ async function enterSplatWorld(spzUrl, label) {
   scene.add(splatMesh);
   root = new THREE.Group(); scene.add(root);
   current = null; flyMode = false; splatMode = true;
-  pos.set(0, 1.7, 4); yaw = 0; pitch = 0; intro = .6;
+  scene.fog = null; scene.background = new THREE.Color(0x0b0e1a);
+  currentGenre = opts.battle ? 'battle' : null;
+  if (!opts.battle) stopWarAudio();
+  splatMaxR = opts.battle ? 40 : 30;
+  pos.set(0, 1.7, opts.battle ? 14 : 4); yaw = 0; pitch = 0; intro = .6;
   document.getElementById('world-name').textContent = label || 'your world';
+  if (opts.battle) {
+    let groundY = () => 0;
+    try {
+      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+      const gltf = await new GLTFLoader().loadAsync(opts.collider);
+      const colScene = gltf.scene; colScene.updateMatrixWorld(true);
+      const rc = new THREE.Raycaster(), DOWN = new THREE.Vector3(0, -1, 0), ORG = new THREE.Vector3();
+      groundY = (x, z) => { ORG.set(x, 80, z); rc.set(ORG, DOWN); const h = rc.intersectObject(colScene, true); return h.length ? h[0].point.y : 0; };
+    } catch (e) { console.warn('collider unavailable, flat ground:', e); }
+    const gy0 = groundY(0, 14);
+    pos.set(0, gy0 + 1.7, 14);
+    current = buildBattleOnSplat(root, groundY, gy0);
+  }
 }
 
 /* ---------------- character chat ---------------- */
@@ -1104,13 +1262,18 @@ function begin(text) {
   (async () => {
     let usedMarble = false;
     try {
+      if (TEST_BATTLE) {
+        await enterSplatWorld(TEST_SPZ, 'battle over marble splat', { battle: true, collider: TEST_COL });
+        usedMarble = true;
+        throw 'skip-normal';
+      }
       const res = await marbleGenerate(dream, (el) => {
         vt.textContent = 'weaving your world\u2026 ' + Math.round(el) + 's - real generation takes a few minutes';
       });
-      await enterSplatWorld(res.spz, dream.slice(0, 24));
+      await enterSplatWorld(res.spz, dream.slice(0, 24), { battle: genre === 'battle' || (storyChar && storyChar.name === 'commander rye'), collider: res.collider });
       usedMarble = true;
     } catch (e) {
-      console.warn('marble path unavailable, prebaked fallback:', e);
+      if (e !== 'skip-normal') console.warn('marble path unavailable, prebaked fallback:', e);
     }
     if (!usedMarble) {
       await new Promise(r => setTimeout(r, 650));
